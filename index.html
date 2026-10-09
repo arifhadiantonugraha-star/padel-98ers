@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>98'ers Padel v4.0 LIVE</title>
+<style>
+body{font-family:Arial,sans-serif;background:#e8f5e9;padding:10px;margin:0}
+.container{max-width:800px;margin:auto;background:white;padding:15px;border-radius:12px}
+h1{color:#1b5e20;text-align:center}
+.btn{background:#2e7d32;color:white;border:none;padding:12px;border-radius:8px;width:100%;margin:6px 0;font-weight:bold;cursor:pointer}
+.btn:disabled{background:#aaa}
+.btn-kecil{width:49%}.btn-rekap{background:#673ab7}.btn-reset{background:#9e9e9e}
+.input-box{width:100%;padding:10px;margin:6px 0;border:2px solid #4caf50;border-radius:6px;box-sizing:border-box}
+.nama-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.nama-card{padding:12px;border:2px solid #ccc;border-radius:8px;text-align:center;font-weight:bold;cursor:pointer;background:#f5f5f5}
+.nama-card.aktif{background:#4caf50;color:white}
+.lapangan{border:2px solid #4caf50;border-radius:10px;padding:12px;margin:12px 0;background:#f1f8e9}
+.tim-box{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center}
+.input-nama{width:100%;text-align:center;padding:8px;border:2px solid #2e7d32;border-radius:6px;background:#e8f5e9;font-weight:bold;box-sizing:border-box}
+.input-skor{width:60px;text-align:center;font-size:18px;padding:6px;border:2px solid #4caf50;border-radius:5px;font-weight:bold}
+.simbol-vs{font-weight:bold;color:#d32f2f;text-align:center}
+.istirahat{color:#d32f2f;font-weight:bold;background:#fff3e0;padding:6px;border-radius:5px;margin-top:8px;font-size:12px}
+.hidden{display:none}.row-btn{display:flex;gap:10px}
+.status{font-size:12px;text-align:center;font-weight:bold;color:green}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>🎾 98'ers v4.0 LIVE</h1>
+<p id="status" class="status">🟢 LIVE - 4 HP Sync</p>
+<div id="page1">
+<label>Kode Room (samakan di 4 HP):</label>
+<input id="roomId" class="input-box" value="98ers-hari-ini" oninput="gantiRoom()">
+<div class="nama-grid" id="gridNama"></div>
+<div id="infoJumlah" style="font-weight:bold;margin:8px 0"></div>
+<button class="btn" onclick="lanjutKeSetting()">Lanjut Setting</button>
+</div>
+<div id="page2" class="hidden">
+<h2>Setting</h2>
+<label>Jumlah Lapang</label><input type="number" id="jmlLapangan" class="input-box" value="1" min="1" max="4">
+<label>Lama Jam</label><input type="number" id="jmlJam" class="input-box" value="2" min="1" max="4">
+<button class="btn" onclick="generateAwal()">Mulai Putaran 1 - Sync ke 4 HP</button>
+<button class="btn" style="background:#555" onclick="showPage('1')">Kembali</button>
+</div>
+<div id="pagePutaran" class="hidden"></div>
+<div id="pageRekap" class="hidden"></div>
+</div>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBxSp7OwTdBd8M_fm5sODI753JrS0RMwB0",
+  authDomain: "padel-98ers.firebaseapp.com",
+  databaseURL: "https://padel-98ers-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "padel-98ers",
+  storageBucket: "padel-98ers.firebasestorage.app",
+  messagingSenderId: "700124611013",
+  appId: "1:700124611013:web:6b954af779d82d3faa4bac"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+const defaultPemain = ["Andrew","Arif","Arnold","Benny","Denny","Doddy","Erick","Fredy","Fenny","Hansen","Irwin","Johan","Joseph","Kevin","Kusma","Nathan","Nonon","Roy","Sendra","Sherly","Verry","Victor","Wawa","Yacob","Yenli"];
+let state = { pemainAktif: [], hasil: {}, detailPertandingan: {}, belumDatangPerPutaran: {}, config: {lapangan:1,jam:2,putaran:12}, putaranSekarang:1, putaranTerselesai:0 };
+let isLocalChange = false;
+
+function getRoomRef(){ return ref(db, 'rooms/' + document.getElementById('roomId').value); }
+window.gantiRoom = function(){ listenFirebase(); }
+function syncToFirebase(){ isLocalChange = true; set(getRoomRef(), state); }
+function listenFirebase(){
+  onValue(getRoomRef(), (snap)=>{
+    if(isLocalChange){ isLocalChange=false; return; }
+    const data = snap.val();
+    if(data){ state = data; renderAll(); }
+  });
+}
+function renderAll(){
+  renderGridNama();
+  if(Object.keys(state.detailPertandingan).length>0){
+    generateAwalLoad(); showPage('Putaran'); gantiPutaran(state.putaranSekarang); hitungRekap();
+  }
+}
+function shuffle(a){ let b=[...a]; for(let i=b.length-1;i>0;i--){ let j=Math.floor(Math.random()*(i+1)); [b[i],b[j]]=[b[j],b[i]]; } return b; }
+window.renderGridNama = function(){
+  let h=''; defaultPemain.forEach(n=>{
+    let aktif = state.pemainAktif.includes(n)?'aktif':'';
+    h+=`<div class="nama-card ${aktif}" onclick="toggleNama('${n}')">${n}</div>`;
+  });
+  document.getElementById('gridNama').innerHTML=h;
+  document.getElementById('infoJumlah').innerText=`Terpilih: ${state.pemainAktif.length} | Room: ${document.getElementById('roomId').value}`;
+}
+window.toggleNama = function(n){
+  let i=state.pemainAktif.indexOf(n);
+  if(i>-1) state.pemainAktif.splice(i,1); else state.pemainAktif.push(n);
+  renderGridNama(); syncToFirebase();
+}
+window.showPage = function(n){
+  document.querySelectorAll('.container > div').forEach((d)=>{ if(d.id.startsWith('page')) d.classList.add('hidden'); });
+  document.getElementById(`page${n}`).classList.remove('hidden');
+}
+window.lanjutKeSetting = function(){ if(state.pemainAktif.length<4){alert("Minimal 4"); return;} showPage('2'); }
+window.generateAwal = function(){
+  state.config.lapangan=parseInt(document.getElementById('jmlLapangan').value);
+  state.config.jam=parseInt(document.getElementById('jmlJam').value);
+  state.config.putaran=state.config.jam*6;
+  state.putaranSekarang=1; state.putaranTerselesai=0;
+  state.detailPertandingan={}; state.hasil={}; state.belumDatangPerPutaran={};
+  state.pemainAktif.forEach(p=>state.hasil[p]={main:0,menang:0});
+  generatePutaran(1); syncToFirebase(); generateAwalLoad(); showPage('Putaran'); gantiPutaran(1);
+}
+window.generateAwalLoad = function(){
+  let area=document.getElementById('pagePutaran');
+  area.innerHTML=`<h2>Jadwal LIVE - ${state.config.lapangan} Lapang</h2>`;
+  for(let p=1;p<=state.config.putaran;p++){
+    if(!state.belumDatangPerPutaran[p]) state.belumDatangPerPutaran[p]=[];
+    if(!state.detailPertandingan[p]) state.detailPertandingan[p]={};
+    area.innerHTML+=`<div id="putaran${p}" class="hidden"><h3>PUTARAN ${p}/${state.config.putaran}</h3><div id="hasilPutaran${p}"></div><div class="row-btn"><button class="btn btn-kecil" style="background:#555" onclick="prevPutaran(${p-1})">Prev</button><button class="btn btn-kecil" onclick="nextPutaran(${p+1})">Next</button></div></div>`;
+  }
+  area.innerHTML+=`<div class="row-btn"><button class="btn btn-rekap btn-kecil" onclick="lihatRekap()">Rekap</button><button class="btn btn-kecil" style="background:#d32f2f" onclick="selesaiDanRekap()">Selesai</button></div>`;
+}
+window.gantiPutaran = function(n){
+  if(n<1||n>state.config.putaran) return;
+  state.putaranSekarang=n;
+  for(let i=1;i<=state.config.putaran;i++){ let el=document.getElementById(`putaran${i}`); if(el) el.classList.add('hidden'); }
+  document.getElementById(`putaran${n}`).classList.remove('hidden');
+  renderPutaran(n); syncToFirebase();
+}
+window.prevPutaran = function(n){ if(n>=1) gantiPutaran(n); }
+window.nextPutaran = function(n){
+  if(n>state.config.putaran) return;
+  if(!cekSelesai(state.putaranSekarang)){ alert("Isi skor dulu"); return; }
+  state.putaranTerselesai=state.putaranSekarang;
+  if(!state.detailPertandingan[n]||Object.keys(state.detailPertandingan[n]).length==0) generatePutaran(n);
+  gantiPutaran(n); syncToFirebase();
+}
+function cekSelesai(p){ for(let l=1;l<=state.config.lapangan;l++){ let t=state.detailPertandingan[p][l]; if(!t||t[4]===''||t[5]==='') return false; } return true; }
+window.generatePutaran = function(p){
+  let bisa=state.pemainAktif; let butuh=state.config.lapangan*4;
+  if(p===1){ bisa=shuffle(bisa); for(let l=1;l<=state.config.lapangan;l++){ let g=bisa.slice((l-1)*4,l*4); g=shuffle(g); state.detailPertandingan[p][l]=[g[0],g[3],g[1],g[2],'','']; } return; }
+  let sorted=[...bisa].sort((a,b)=> (state.hasil[a]?.main||0)-(state.hasil[b]?.main||0));
+  let terpilih=sorted.slice(0,butuh); terpilih=shuffle(terpilih);
+  for(let l=1;l<=state.config.lapangan;l++){ let c=terpilih.slice((l-1)*4,l*4); state.detailPertandingan[p][l]=[c[0]||'',c[3]||'',c[1]||'',c[2]||'','','']; }
+}
+window.renderPutaran = function(p){
+  let html=''; let ygMain=[];
+  for(let l=1;l<=state.config.lapangan;l++){
+    let tim=state.detailPertandingan[p][l]||['','','','','',''];
+    ygMain.push(...tim.slice(0,4));
+    html+=`<div class="lapangan"><h4>LAP ${l}</h4><div class="tim-box"><div><input class="input-nama" value="${tim[0]}" readonly><div class="simbol-vs">&</div><input class="input-nama" value="${tim[1]}" readonly></div><div class="simbol-vs">VS</div><div><input class="input-nama" value="${tim[2]}" readonly><div class="simbol-vs">&</div><input class="input-nama" value="${tim[3]}" readonly></div></div><div class="tim-box"><div><input class="input-skor" id="s${p}${l}a" value="${tim[4]}" oninput="updateSkor(${p},${l},'a')"></div><div></div><div><input class="input-skor" id="s${p}${l}b" value="${tim[5]}" oninput="updateSkor(${p},${l},'b')"></div></div></div>`;
+  }
+  let istirahat=state.pemainAktif.filter(n=>!ygMain.includes(n));
+  if(istirahat.length>0) html+=`<div class="istirahat">Istirahat: ${istirahat.join(', ')}</div>`;
+  document.getElementById(`hasilPutaran${p}`).innerHTML=html;
+}
+window.updateSkor = function(p,lap,y){
+  let a=document.getElementById(`s${p}${lap}a`); let b=document.getElementById(`s${p}${lap}b`);
+  if(y==='a'&&a.value!=='') b.value=21-parseInt(a.value)||'';
+  if(y==='b'&&b.value!=='') a.value=21-parseInt(b.value)||'';
+  let t=state.detailPertandingan[p][lap]; t[4]=a.value; t[5]=b.value; syncToFirebase();
+}
+window.lihatRekap = function(){ hitungRekap(); showPage('Rekap'); }
+window.selesaiDanRekap = function(){ if(cekSelesai(state.putaranSekarang)) state.putaranTerselesai=state.putaranSekarang; hitungRekap(); showPage('Rekap'); syncToFirebase(); }
+window.hitungRekap = function(){
+  state.pemainAktif.forEach(p=>{ if(!state.hasil[p]) state.hasil[p]={main:0,menang:0}; else {state.hasil[p].main=0; state.hasil[p].menang=0;} });
+  for(let p=1;p<=state.putaranTerselesai;p++){
+    for(let l=1;l<=state.config.lapangan;l++){
+      let t=state.detailPertandingan[p][l]; if(!t) continue;
+      let sA=parseInt(t[4]); let sB=parseInt(t[5]); if(isNaN(sA)||isNaN(sB)) continue;
+      [t[0],t[1],t[2],t[3]].forEach(n=>{ if(n) state.hasil[n].main++; });
+      if(sA>sB){ state.hasil[t[0]].menang++; state.hasil[t[1]].menang++; }
+      else if(sB>sA){ state.hasil[t[2]].menang++; state.hasil[t[3]].menang++; }
+    }
+  }
+  renderRekap();
+}
+window.renderRekap = function(){
+  let html=`<h2>Rekap - Selesai ${state.putaranTerselesai} putaran</h2><div class="row-btn"><button class="btn btn-kecil" style="background:#555" onclick="showPage('Putaran');gantiPutaran(${state.putaranSekarang})">Kembali</button></div><table border="1" style="width:100%;border-collapse:collapse;margin-top:10px;font-size:12px"><tr><th>Nama</th><th>Main</th><th>Menang</th></tr>`;
+  [...state.pemainAktif].sort((a,b)=>state.hasil[b].main-state.hasil[a].main).forEach(n=>{
+    html+=`<tr><td>${n}</td><td style="text-align:center">${state.hasil[n]?.main||0}</td><td style="text-align:center">${state.hasil[n]?.menang||0}</td></tr>`;
+  });
+  html+=`</table>`;
+  document.getElementById('pageRekap').innerHTML=html;
+}
+renderGridNama(); listenFirebase();
+</script>
+</body>
+</html>
